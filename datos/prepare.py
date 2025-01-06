@@ -5,6 +5,8 @@ import numpy as np
 import plotly.express as px
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from datetime import datetime
+from ydata_profiling import ProfileReport
+import os
 
 def show_prepare():
     # Crear un contenedor para mensajes de estado
@@ -708,18 +710,48 @@ def show_prepare():
     else:
         st.warning("No hay suficientes variables numéricas para calcular correlaciones.")
 
-    # Botón de guardar al final
+    # Button para guardar datos preparados
     if st.button("Guardar datos preparados", key="save_prepared_data_button"):
         try:
             null_count = prepare.isnull().sum().sum()
             if null_count == 0:
                 st.session_state.prepared_data = prepare.copy()
-                # Actualizar también los datos temporales
                 st.session_state.temp_prepared_data = prepare.copy()
+                st.session_state.data_saved = True
                 st.success("✅ Datos preparados guardados exitosamente")
+                
+                # Generar reporte
+                progress_container = st.empty()
+                with progress_container:
+                    with st.spinner('Generando reporte del dataset...'):
+                        profile = ProfileReport(prepare, title="Dataset Report", explorative=True)
+                        st.session_state.report_html = profile.to_html()
+                        st.success("¡Reporte generado exitosamente!")
             else:
                 st.error(f"❌ No se pueden guardar los datos. Aún hay {null_count} valores nulos.")
                 st.warning("Por favor, aplica una estrategia de manejo de valores faltantes antes de guardar.")
         except Exception as e:
             st.error(f"Error al guardar los datos preparados: {str(e)}")
+
+    # Botones de descarga fuera del bloque principal
+    if 'data_saved' in st.session_state and st.session_state.data_saved:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            csv = st.session_state.prepared_data.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Descargar Dataset Preparado",
+                data=csv,
+                file_name="prepared_dataset.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            st.download_button(
+                label="Descargar Reporte del Dataset",
+                data=st.session_state.report_html,
+                file_name="dataset_report.html",
+                mime="text/html"
+            )
+
     st.info("👆 No te olvides de guardar los datos preparados antes de continuar con el análisis en la página Training o Test.")
