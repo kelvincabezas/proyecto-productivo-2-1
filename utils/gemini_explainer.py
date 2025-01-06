@@ -225,13 +225,24 @@ def initialize_gemini_explainer():
     Función de utilidad para inicializar el explicador de Gemini en Streamlit
     
     Returns:
-        GeminiExplainer: Instancia del explicador de Gemini
+        GeminiExplainer: Instancia del explicador de Gemini o None si hay error
     """
     try:
-        explainer = GeminiExplainer()
+        if 'gemini_api_key' not in st.session_state:
+            st.warning("Por favor configura tu API key de Gemini primero")
+            return None
+            
+        api_key = st.session_state.get('gemini_api_key')
+        if not api_key:
+            st.warning("API key de Gemini no encontrada")
+            return None
+            
+        # Inicializar explicador con la API key
+        explainer = GeminiExplainer(api_key=api_key)
         return explainer
-    except ValueError as e:
-        st.error(str(e))
+        
+    except Exception as e:
+        st.error(f"Error al inicializar el explicador: {str(e)}")
         return None
 
 # Ejemplo de uso en Streamlit

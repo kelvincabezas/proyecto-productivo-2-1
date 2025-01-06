@@ -16,10 +16,7 @@ import os
 import sys
 import pickle
 import io
-
-# Obtener la ruta del directorio raíz del proyecto
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
+import h2o
 
 # Importaciones
 from utils.model_utils import (
@@ -32,6 +29,33 @@ from utils.model_utils import (
 from utils.gemini_explainer import initialize_gemini_explainer
 from utils.gemini_explainer import generate_model_explanation
 from utils.shap_explainer import create_shap_analysis_dashboard
+
+def safe_init_h2o(url=None, **kwargs):
+    """
+    Safely initialize H2O cluster if not already running.
+    
+    Args:
+        url (str, optional): H2O cluster URL. Defaults to None (local instance).
+        **kwargs: Additional arguments to pass to h2o.init()
+    
+    Returns:
+        h2o._backend.H2OConnection: The H2O connection object
+    """
+    # Get current H2O instance if exists
+    current = h2o.connection()
+    
+    # Check if H2O is already running
+    if current and current.cluster:
+        print("H2O is already running at", current.base_url)
+        return current
+    
+    # Initialize new H2O instance
+    print("Starting new H2O instance...")
+    return h2o.init(url=url, **kwargs)
+
+# Obtener la ruta del directorio raíz del proyecto
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, project_root)
 
 def validate_data_preparation(train):
     """
@@ -163,6 +187,10 @@ def show_train():
         st.warning("⚠️ Los datos preparados están vacíos. Por favor, verifica la preparación de datos.")
         return
     
+    # Inicializar 'trained_models' si no existe
+    if 'trained_models' not in st.session_state:
+        st.session_state.trained_models = {}
+        
     train = st.session_state.prepared_data
     
     try:
@@ -209,30 +237,32 @@ def show_train():
         # Gestionar modelos seleccionados
         if 'selected_models' not in st.session_state:
             st.session_state.selected_models = []
-
+    
         selected_models = st.multiselect(
             "Selecciona los modelos a entrenar:",
             list(model_options.keys()),
             default=st.session_state.selected_models
         )
         st.session_state.selected_models = selected_models
-
+    
         if not selected_models:
             st.warning("Por favor selecciona al menos un modelo para entrenar.")
             return
-
+    
         # Configurar re-entrenamiento
         if st.button("Reentrenar Modelos"):
             st.session_state.retrain_models = True
         else:
-            st.session_state.retrain_models = False
-
+            # Solo establecer a False si no está ya en sesión
+            if 'retrain_models' not in st.session_state:
+                st.session_state.retrain_models = False
+    
         # Dividir datos
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state,
             stratify=y if problem_type == 'classification' else None
         )
-
+    
         # Crear columnas para mostrar resultados de modelos
         cols = st.columns(len(selected_models))
         
@@ -241,24 +271,29 @@ def show_train():
             with cols[i]:
                 st.write(f"### {model_name}")
                 
-                # Entrenar modelo
-                trained_model = train_model_pipeline(
-                    X_train=X_train,
-                    y_train=y_train,
-                    model_config=model_options[model_name],
-                    X_test=X_test,
-                    y_test=y_test,
-                    cv=st.session_state.n_folds,
-                    scoring=None,
-                    random_state=random_state,  # Pasar random_state
-                    n_jobs=-1,     # Para usar todos los núcleos disponibles
-                    verbose=1
-                )
-                
-                # Almacenar el modelo entrenado en session_state si es necesario
-                if 'trained_models' not in st.session_state:
-                    st.session_state.trained_models = {}
-                st.session_state.trained_models[model_name] = trained_model
+                # Verificar si el modelo ya está entrenado y si no se solicita reentrenamiento
+                if (model_name not in st.session_state.trained_models) or st.session_state.retrain_models:
+                    # Entrenar modelo
+                    trained_model = train_model_pipeline(
+                        X_train=X_train,
+                        y_train=y_train,
+                        model_config=model_options[model_name],
+                        X_test=X_test,
+                        y_test=y_test,
+                        cv=st.session_state.n_folds,
+                        scoring=None,
+                        random_state=random_state,  # Pasar random_state
+                        n_jobs=-1,     # Para usar todos los núcleos disponibles
+                        verbose=1
+                    )
+                    
+                    # Almacenar el modelo entrenado en session_state
+                    if 'trained_models' not in st.session_state:
+                        st.session_state.trained_models = {}
+                    st.session_state.trained_models[model_name] = trained_model
+                else:
+                    # Reutilizar el modelo ya entrenado
+                    trained_model = st.session_state.trained_models[model_name]
                 
                 # Mostrar resultados del modelo
                 show_model_results(
@@ -268,9 +303,10 @@ def show_train():
                     cols[i],
                     trained_model
                 )
-
+    
     except Exception as e:
         st.error(f"Error inesperado: {str(e)}")
+
 
 def show_model_results(model_name, problem_type, y_test, col, trained_model):
     """
@@ -340,11 +376,12 @@ def show_model_results(model_name, problem_type, y_test, col, trained_model):
             if model_name in st.session_state.model_explanations:
                 st.markdown(st.session_state.model_explanations[model_name])
             
-            # Generar explicación con Gemini
-            if explain_button and has_api_key:
+        # Inicializar el explainer solo cuando se necesite
+        if explain_button and has_api_key:
+            explainer = initialize_gemini_explainer()
+            if explainer:  # Verificar que el explainer se inicializó correctamente
                 try:
                     with st.spinner("Generando explicación..."):
-                        # Construir el diccionario model_info
                         model_info = {
                             'name': model_name,
                             'problem_type': problem_type,
@@ -362,51 +399,53 @@ def show_model_results(model_name, problem_type, y_test, col, trained_model):
                         st.markdown(explanation)
                 except Exception as e:
                     st.error(f"Error al generar la explicación: {str(e)}")
+            else:
+                st.error("No se pudo inicializar el explicador de Gemini")
 
-            # Sección de análisis SHAP
-            st.write("---")
-            st.write("### Análisis SHAP")
-            
-            if st.button("Mostrar Análisis SHAP", key=f"shap_button_{model_name}"):
-                try:
-                    # Obtener datos preparados
-                    X = st.session_state.prepared_data[st.session_state.feature_cols]
-                    
-                    # Crear dashboard de análisis SHAP
-                    create_shap_analysis_dashboard(
-                        results['best_model'],  # Usar el mejor modelo
-                        X, 
-                        problem_type
-                    )
-                except Exception as e:
-                    st.error(f"Error en el análisis SHAP: {str(e)}")
+        # Sección de análisis SHAP
+        st.write("---")
+        st.write("### Análisis SHAP")
+        
+        if st.button("Mostrar Análisis SHAP", key=f"shap_button_{model_name}"):
+            try:
+                # Obtener datos preparados
+                X = st.session_state.prepared_data[st.session_state.feature_cols]
+                
+                # Crear dashboard de análisis SHAP
+                create_shap_analysis_dashboard(
+                    results['best_model'],  # Usar el mejor modelo
+                    X, 
+                    problem_type
+                )
+            except Exception as e:
+                st.error(f"Error en el análisis SHAP: {str(e)}")
 
-            # Sección de descarga del modelo
-            st.write("---")
-            st.write("### Descarga del modelo")
-            
-            # Generar nombre de archivo
-            model_file_key = f"model_file_{model_name}"
-            if model_file_key not in st.session_state:
-                st.session_state[model_file_key] = f"{model_name.lower().replace(' ', '_')}_{int(time.time())}.pkl"
-            
-            # Input para nombre de archivo
-            model_name_input = st.text_input(
-                "Nombre del archivo:",
-                value=st.session_state[model_file_key],
-                key=f"name_input_{model_name}"
-            )
-            
-            # Botón de descarga
-            model_buffer = io.BytesIO()
-            pickle.dump(results['best_model'], model_buffer)  # Guardar el mejor modelo
-            model_buffer.seek(0)
-            
-            download_key = f"download_{model_name}"
-            st.download_button(
-                label="Descargar Modelo",
-                data=model_buffer,
-                file_name=model_name_input,
-                mime="application/octet-stream",
-                key=download_key
-            )
+        # Sección de descarga del modelo
+        st.write("---")
+        st.write("### Descarga del modelo")
+        
+        # Generar nombre de archivo
+        model_file_key = f"model_file_{model_name}"
+        if model_file_key not in st.session_state:
+            st.session_state[model_file_key] = f"{model_name.lower().replace(' ', '_')}_{int(time.time())}.pkl"
+        
+        # Input para nombre de archivo
+        model_name_input = st.text_input(
+            "Nombre del archivo:",
+            value=st.session_state[model_file_key],
+            key=f"name_input_{model_name}"
+        )
+        
+        # Botón de descarga
+        model_buffer = io.BytesIO()
+        pickle.dump(results['best_model'], model_buffer)  # Guardar el mejor modelo
+        model_buffer.seek(0)
+        
+        download_key = f"download_{model_name}"
+        st.download_button(
+            label="Descargar Modelo",
+            data=model_buffer,
+            file_name=model_name_input,
+            mime="application/octet-stream",
+            key=download_key
+        )
