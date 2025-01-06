@@ -325,7 +325,12 @@ class ModelTrainer:
         try:
             # Realizar búsqueda de hiperparámetros
             grid_search = GridSearchCV(**grid_search_params)
+            progress_bar = st.progress(0)
+            start_time = time.time()
             grid_search.fit(X_train, y_train)
+            training_time = time.time() - start_time
+            progress_bar.progress(100, text=f"Completado en {training_time:.2f} segundos")
+
         except Exception as e:
             return {
                 'error': f"Error durante el entrenamiento: {str(e)}",
@@ -338,7 +343,8 @@ class ModelTrainer:
             'best_model': grid_search.best_estimator_,
             'best_params': grid_search.best_params_,
             'best_score': grid_search.best_score_,
-            'cv_results': grid_search.cv_results_
+            'cv_results': grid_search.cv_results_,
+            'training_time': training_time
         }
 
         # Evaluación en conjunto de prueba
