@@ -6,7 +6,7 @@ import plotly.express as px
 import time
 import pickle
 import io
-
+from stqdm import stqdm
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -325,11 +325,11 @@ class ModelTrainer:
         try:
             # Realizar búsqueda de hiperparámetros
             grid_search = GridSearchCV(**grid_search_params)
-            progress_bar = st.progress(0)
-            start_time = time.time()
-            grid_search.fit(X_train, y_train)
-            training_time = time.time() - start_time
-            progress_bar.progress(100, text=f"Completado en {training_time:.2f} segundos")
+            with stqdm(desc=f"Entrenando modelo {model}", total=1) as pbar:
+                start_time = time.time()
+                grid_search.fit(X_train, y_train)
+                training_time = time.time() - start_time
+                pbar.update(1)
 
         except Exception as e:
             return {

@@ -20,3 +20,4 @@ imblearn
 openpyxl
 pygwalker
 ydata_profiling
+stqdm
