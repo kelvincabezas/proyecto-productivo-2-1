@@ -21,3 +21,5 @@ openpyxl
 pygwalker
 ydata_profiling
 stqdm
+h2o
+FLAML
