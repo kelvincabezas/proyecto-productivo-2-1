@@ -1,4 +1,4 @@
-streamlit==1.33.0
+streamlit==1.37.1
 streamlit_navigation_bar
 streamlit_lottie
 pandas
@@ -23,4 +23,3 @@ ydata_profiling
 stqdm
 h2o
 FLAML==2.3.3
-pkg_resources
