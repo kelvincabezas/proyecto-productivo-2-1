@@ -23,4 +23,4 @@ ydata_profiling
 stqdm
 h2o
 FLAML==2.3.3
-setuptools==75.5.0
+setuptools
