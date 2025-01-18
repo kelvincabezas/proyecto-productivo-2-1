@@ -23,4 +23,3 @@ ydata_profiling
 stqdm
 h2o
 FLAML==2.3.3
-pkg_resources
